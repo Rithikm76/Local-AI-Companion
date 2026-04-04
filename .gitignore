@@ -1,0 +1,11 @@
+chatbot_memory.db
+memory.index
+__pycache__/
+*.pyc
+*.pyo
+.env
+fix.py
+Then:
+bashgit add .gitignore
+git commit -m "Remove personal data files and add gitignore"
+git push
