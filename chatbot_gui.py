@@ -129,10 +129,6 @@ def load_setting(key, default=None):
 # =============================
 
 def chat_completion(model, messages, provider=None):
-    """
-    Routes chat calls to the correct backend (Ollama or Groq).
-    Returns the assistant's reply as a plain string.
-    """
     if provider is None:
         provider = CURRENT_PROVIDER
 
@@ -161,7 +157,6 @@ def chat_completion(model, messages, provider=None):
 # =============================
 
 def should_store_memory(text):
-
     text = text.lower().strip()
 
     if len(text.split()) < 4:
@@ -176,7 +171,6 @@ def should_store_memory(text):
 
 
 def save_message(role, content):
-
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -192,7 +186,6 @@ def save_message(role, content):
     conn.close()
 
     if should_store_memory(content):
-
         threading.Thread(
             target=save_embedding,
             args=(content, message_id)
@@ -200,7 +193,6 @@ def save_message(role, content):
 
 
 def save_embedding(text, message_id):
-
     embedding = embedding_model.encode([text])[0]
     vector = np.array([embedding]).astype("float32")
 
@@ -213,7 +205,6 @@ def save_embedding(text, message_id):
 # =============================
 
 def extract_and_save_profile(conversation_snippet):
-
     prompt = f"""
 Read the following conversation and extract any facts about the user.
 
@@ -287,7 +278,6 @@ Conversation:
 
 
 def get_user_profile():
-
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -314,7 +304,6 @@ def get_user_profile():
 # =============================
 
 def search_similar_memories(query, limit=3):
-
     if index.ntotal == 0:
         return []
 
@@ -358,7 +347,6 @@ def search_similar_memories(query, limit=3):
 # =============================
 
 def load_recent_messages(limit=20):
-
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -377,7 +365,6 @@ def load_recent_messages(limit=20):
     messages = []
 
     for role, content in rows:
-
         messages.append({
             "role": role,
             "content": content
@@ -391,11 +378,9 @@ def load_recent_messages(limit=20):
 # =============================
 
 def rebuild_faiss_index():
-
     global index
 
     if os.path.exists("memory.index"):
-
         index = faiss.read_index("memory.index")
 
         conn = sqlite3.connect(DB_NAME)
@@ -441,13 +426,16 @@ def is_online():
         return False
 
 
+# =============================
+# WEB SEARCH
+# =============================
+
 def web_search(query):
     api_key = load_setting("web_search_api_key", "")
     if not api_key:
-        return "Web search API key not configured. Add it in Settings."
-    
+        return None
+
     try:
-        # Using SerpAPI for web search
         url = "https://serpapi.com/search"
         params = {
             "q": query,
@@ -455,17 +443,19 @@ def web_search(query):
         }
         response = requests.get(url, params=params, timeout=5)
         results = response.json()
-        
+
         if "organic_results" in results:
-            search_text = "Search results:\n"
+            search_text = ""
             for result in results["organic_results"][:3]:
-                title = result.get("title", "No title")
-                snippet = result.get("snippet", "No snippet")
+                title = result.get("title", "")
+                snippet = result.get("snippet", "")
                 search_text += f"- {title}: {snippet}\n"
-            return search_text
-        return "No search results found."
-    except Exception as e:
-        return f"Web search failed: {str(e)}"
+            return search_text if search_text else None
+
+        return None
+
+    except Exception:
+        return None
 
 
 # =============================
@@ -531,7 +521,6 @@ class ChatbotGUI:
                 except Exception:
                     pass
             elif CURRENT_PROVIDER == "groq":
-                # For cloud models, just trust the saved value
                 CURRENT_MODEL = saved_model
 
         self.conversation_history = load_recent_messages(20)
@@ -560,7 +549,6 @@ class ChatbotGUI:
         )
         self.model_label.pack(side=tk.LEFT, padx=10, pady=5)
 
-        # Provider indicator dot
         provider_color = "#44ff88" if CURRENT_PROVIDER == "ollama" else "#00b4d8"
         self.provider_dot = tk.Label(
             top_bar,
@@ -592,7 +580,6 @@ class ChatbotGUI:
             font=("Arial", 11),
             state=tk.DISABLED
         )
-
         self.chat_display.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # --- Input area ---
@@ -603,9 +590,7 @@ class ChatbotGUI:
             fg="white",
             insertbackground="white"
         )
-
         self.input_box.pack(fill=tk.X, padx=10)
-
         self.input_box.bind("<Return>", self.send_message_event)
 
         self.send_button = tk.Button(
@@ -613,14 +598,12 @@ class ChatbotGUI:
             text="Send",
             command=self.send_message
         )
-
         self.send_button.pack(pady=5)
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
 
     def update_top_bar(self):
-        """Refresh the top bar labels after a settings change."""
         provider_label_text = PROVIDERS[CURRENT_PROVIDER]["label"]
         self.model_label.config(text=f"{provider_label_text}  ·  {CURRENT_MODEL}")
 
@@ -632,7 +615,7 @@ class ChatbotGUI:
 
         settings_win = tk.Toplevel(self.root)
         settings_win.title("Settings")
-        settings_win.geometry("400x420")
+        settings_win.geometry("400x460")
         settings_win.configure(bg="#1e1e1e")
         settings_win.resizable(False, False)
 
@@ -659,18 +642,17 @@ class ChatbotGUI:
         )
         provider_dropdown.pack(pady=5)
 
-        # --- API Key frame (shown only for Groq) ---
+        # --- Groq API Key ---
         api_frame = tk.Frame(settings_win, bg="#1e1e1e")
         api_frame.pack(fill=tk.X, padx=30, pady=5)
 
-        api_key_label = tk.Label(
+        tk.Label(
             api_frame,
             text="Groq API Key",
             bg="#1e1e1e",
             fg="#aaaaaa",
             font=("Arial", 9)
-        )
-        api_key_label.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
         saved_api_key = load_setting("groq_api_key", "")
         api_key_var = tk.StringVar(value=saved_api_key)
@@ -688,12 +670,9 @@ class ChatbotGUI:
         show_key_var = tk.BooleanVar(value=False)
 
         def toggle_key_visibility():
-            if show_key_var.get():
-                api_key_entry.config(show="")
-            else:
-                api_key_entry.config(show="•")
+            api_key_entry.config(show="" if show_key_var.get() else "•")
 
-        show_key_btn = tk.Checkbutton(
+        tk.Checkbutton(
             api_frame,
             text="Show key",
             variable=show_key_var,
@@ -704,31 +683,28 @@ class ChatbotGUI:
             activebackground="#1e1e1e",
             activeforeground="#888888",
             font=("Arial", 8)
-        )
-        show_key_btn.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
-        api_key_hint = tk.Label(
+        tk.Label(
             api_frame,
             text="Get a free key at console.groq.com",
             bg="#1e1e1e",
             fg="#666666",
             font=("Arial", 8),
             cursor="hand2"
-        )
-        api_key_hint.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
-        # --- Web Search API Key frame ---
+        # --- Web Search API Key ---
         search_frame = tk.Frame(settings_win, bg="#1e1e1e")
         search_frame.pack(fill=tk.X, padx=30, pady=5)
 
-        search_key_label = tk.Label(
+        tk.Label(
             search_frame,
             text="Web Search API Key (SerpAPI)",
             bg="#1e1e1e",
             fg="#aaaaaa",
             font=("Arial", 9)
-        )
-        search_key_label.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
         saved_search_key = load_setting("web_search_api_key", "")
         search_key_var = tk.StringVar(value=saved_search_key)
@@ -746,12 +722,9 @@ class ChatbotGUI:
         show_search_key_var = tk.BooleanVar(value=False)
 
         def toggle_search_key_visibility():
-            if show_search_key_var.get():
-                search_key_entry.config(show="")
-            else:
-                search_key_entry.config(show="•")
+            search_key_entry.config(show="" if show_search_key_var.get() else "•")
 
-        show_search_key_btn = tk.Checkbutton(
+        tk.Checkbutton(
             search_frame,
             text="Show key",
             variable=show_search_key_var,
@@ -762,18 +735,16 @@ class ChatbotGUI:
             activebackground="#1e1e1e",
             activeforeground="#888888",
             font=("Arial", 8)
-        )
-        show_search_key_btn.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
-        search_key_hint = tk.Label(
+        tk.Label(
             search_frame,
             text="Get a free key at serpapi.com",
             bg="#1e1e1e",
             fg="#666666",
             font=("Arial", 8),
             cursor="hand2"
-        )
-        search_key_hint.pack(anchor=tk.W)
+        ).pack(anchor=tk.W)
 
         # --- Model selection ---
         tk.Label(
@@ -803,7 +774,6 @@ class ChatbotGUI:
         )
         status_label.pack(pady=2)
 
-        # Populate models for the current provider
         def refresh_models(*args):
             selected_provider_label = provider_var.get()
             selected_provider_id = provider_ids[selected_provider_label]
@@ -811,7 +781,6 @@ class ChatbotGUI:
             model_names = list(models.keys())
             model_dropdown["values"] = model_names
 
-            # Try to find current model label
             current_label = model_names[0] if model_names else ""
             for label, mid in models.items():
                 if mid == CURRENT_MODEL:
@@ -819,7 +788,6 @@ class ChatbotGUI:
                     break
             model_var.set(current_label)
 
-            # Show/hide API key frame
             if selected_provider_id == "groq":
                 api_frame.pack(fill=tk.X, padx=30, pady=5)
                 if not GROQ_AVAILABLE:
@@ -833,10 +801,7 @@ class ChatbotGUI:
                         fg="#ffaa00"
                     )
                 else:
-                    status_label.config(
-                        text="✓ API key set",
-                        fg="#44ff88"
-                    )
+                    status_label.config(text="✓ API key set", fg="#44ff88")
             else:
                 api_frame.pack_forget()
                 check_ollama_model_status()
@@ -863,23 +828,15 @@ class ChatbotGUI:
                 selected_model.split(":")[0] in line
                 for line in available_local.splitlines()
             ):
-                status_label.config(
-                    text="✓ Model available locally",
-                    fg="#44ff88"
-                )
+                status_label.config(text="✓ Model available locally", fg="#44ff88")
             else:
-                status_label.config(
-                    text="⚠ Not downloaded. Will pull on apply.",
-                    fg="#ffaa00"
-                )
+                status_label.config(text="⚠ Not downloaded. Will pull on apply.", fg="#ffaa00")
 
         provider_dropdown.bind("<<ComboboxSelected>>", refresh_models)
         model_dropdown.bind("<<ComboboxSelected>>", check_ollama_model_status)
 
-        # Initialize
         refresh_models()
 
-        # --- Apply button ---
         def apply_settings():
             global CURRENT_MODEL, CURRENT_PROVIDER
 
@@ -894,7 +851,12 @@ class ChatbotGUI:
 
             selected_model = models[selected_label]
 
-            # Save API key if Groq
+            # Save search key regardless of provider
+            search_key = search_key_var.get().strip()
+            if search_key:
+                save_setting("web_search_api_key", search_key)
+
+            # Handle provider logic
             if selected_provider_id == "groq":
                 key = api_key_var.get().strip()
                 if not key:
@@ -910,24 +872,14 @@ class ChatbotGUI:
                     )
                     return
                 save_setting("groq_api_key", key)
-
                 CURRENT_PROVIDER = selected_provider_id
                 CURRENT_MODEL = selected_model
                 save_setting("current_provider", CURRENT_PROVIDER)
                 save_setting("current_model", CURRENT_MODEL)
-
                 print(f"Switched to Groq model: {CURRENT_MODEL}")
-                status_label.config(
-                    text="✓ Groq model set successfully",
-                    fg="#44ff88"
-                )
+                status_label.config(text="✓ Groq model set successfully", fg="#44ff88")
                 self.update_top_bar()
                 settings_win.after(1500, settings_win.destroy)
-
-            # Save web search API key
-            search_key = search_key_var.get().strip()
-            if search_key:
-                save_setting("web_search_api_key", search_key)
 
             elif selected_provider_id == "ollama":
                 available_local = get_available_local_models()
@@ -942,12 +894,8 @@ class ChatbotGUI:
                     CURRENT_MODEL = selected_model
                     save_setting("current_provider", CURRENT_PROVIDER)
                     save_setting("current_model", CURRENT_MODEL)
-
                     print(f"Switched to Ollama model: {CURRENT_MODEL}")
-                    status_label.config(
-                        text="✓ Model switched successfully",
-                        fg="#44ff88"
-                    )
+                    status_label.config(text="✓ Model switched successfully", fg="#44ff88")
                     self.update_top_bar()
                     settings_win.after(1500, settings_win.destroy)
                 else:
@@ -994,21 +942,14 @@ class ChatbotGUI:
 
 
     def display_message(self, role, content, save=True):
-
         self.chat_display.config(state=tk.NORMAL)
 
         timestamp = datetime.now().strftime("%H:%M")
 
         if role == "user":
-            self.chat_display.insert(
-                tk.END,
-                f"\n{timestamp} You: {content}\n"
-            )
+            self.chat_display.insert(tk.END, f"\n{timestamp} You: {content}\n")
         else:
-            self.chat_display.insert(
-                tk.END,
-                f"\n{timestamp} Bot: {content}\n"
-            )
+            self.chat_display.insert(tk.END, f"\n{timestamp} Bot: {content}\n")
 
         self.chat_display.config(state=tk.DISABLED)
         self.chat_display.see(tk.END)
@@ -1018,17 +959,11 @@ class ChatbotGUI:
 
 
     def replace_thinking_message(self, reply):
-
         self.chat_display.config(state=tk.NORMAL)
-
         self.chat_display.delete("end-3l", "end-1l")
 
         timestamp = datetime.now().strftime("%H:%M")
-
-        self.chat_display.insert(
-            tk.END,
-            f"\n{timestamp} Bot: {reply}\n"
-        )
+        self.chat_display.insert(tk.END, f"\n{timestamp} Bot: {reply}\n")
 
         self.chat_display.config(state=tk.DISABLED)
         self.chat_display.see(tk.END)
@@ -1042,7 +977,6 @@ class ChatbotGUI:
 
 
     def send_message(self):
-
         user_input = self.input_box.get("1.0", tk.END).strip()
 
         if user_input.lower() in ["yes", "yeah", "yep", "ok", "sure", "continue"]:
@@ -1064,52 +998,47 @@ class ChatbotGUI:
 
         self.send_button.config(state=tk.DISABLED)
 
-        threading.Thread(
-            target=self.generate_response
-        ).start()
+        threading.Thread(target=self.generate_response).start()
 
-    
+
     def classify_query(self, text):
         text = text.lower()
 
-        if any(x in text for x in ["who won","latest","news","today","score"]):
+        if any(x in text for x in ["who won", "latest", "news", "today", "score", "match", "result"]):
             return "FACTUAL"
-        if any(x in text for x in ["remember","you said","last time","earlier"]):
+
+        if any(x in text for x in ["remember", "you said", "last time", "earlier", "previously"]):
             return "MEMORY"
-        if any(x in text for x in ["hi","hello","how are you","what's up"]):
+
+        if any(x in text for x in ["hi", "hello", "how are you", "what's up", "hey"]):
             return "CASUAL"
-        
+
         return "GENERAL"
+
 
     def generate_response(self):
 
         try:
-
             user_message = self.conversation_history[-1]["content"]
             query_type = self.classify_query(user_message)
 
-            use_memory = False
-            use_search = False
+            use_memory = query_type in ["MEMORY", "GENERAL"]
+            use_search = query_type == "FACTUAL" and bool(load_setting("web_search_api_key", ""))
 
-            if query_type == "FACTUAL":
-              use_search = True
-
-            elif query_type == "MEMORY":
-              use_memory = True
-
-            elif query_type == "GENERAL":
-              use_memory = True
             semantic_memories = []
             if use_memory:
-              semantic_memories = search_similar_memories(user_message)
+                semantic_memories = search_similar_memories(user_message)
+
             recent_history = load_recent_messages(6)
-            search_results = ""
+
+            search_results = None
             if use_search:
-                try:
-                    search_results=web_search(user_message)
-                except Exception:
-                    search_results="Web search failed or is not implemented."
-            
+                search_results = web_search(user_message)
+
+            # =============================
+            # SYSTEM PROMPT
+            # =============================
+
             system_prompt = """
 You are a personal companion. Not an assistant, not a customer service bot.
 
@@ -1135,9 +1064,12 @@ MEMORY RULES:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
             system_prompt += f"\nCurrent system time: {current_time}\n"
 
+            if search_results:
+                system_prompt += f"\nWeb search results (use these to answer factual questions):\n{search_results}\n"
+            elif query_type == "FACTUAL":
+                system_prompt += "\nNo web search available. If you are uncertain about a fact, say so clearly instead of guessing.\n"
+
             user_profile = get_user_profile()
-            if use_search:
-                system_prompt += f"\nSearch results:\n{search_results}\n"
             if user_profile:
                 system_prompt += f"\nBackground context about the user (use naturally, do not force into conversation):\n{user_profile}\n"
 
@@ -1155,6 +1087,10 @@ MEMORY RULES:
             else:
                 system_prompt += "None\n"
 
+            # =============================
+            # BUILD MESSAGE LIST
+            # =============================
+
             messages = [{"role": "system", "content": system_prompt}]
 
             if self.conversation_summary:
@@ -1165,6 +1101,10 @@ MEMORY RULES:
 
             messages += self.conversation_history[-8:]
 
+            # =============================
+            # MODEL CALL
+            # =============================
+
             reply = chat_completion(
                 model=CURRENT_MODEL,
                 messages=messages
@@ -1174,6 +1114,10 @@ MEMORY RULES:
                 self.pending_topic = user_message
 
             print("Model reply:", reply)
+
+            # =============================
+            # SAVE RESPONSE
+            # =============================
 
             self.conversation_history.append({
                 "role": "assistant",
@@ -1189,24 +1133,20 @@ MEMORY RULES:
                 ).start()
 
             if len(self.conversation_history) > 20:
-
                 summary_prompt = f"""
 Summarize the following conversation briefly:
 
 {self.conversation_history[:-10]}
 """
-
                 self.conversation_summary = chat_completion(
                     model=CURRENT_MODEL,
                     messages=[{"role": "user", "content": summary_prompt}]
                 )
-
                 self.conversation_history = self.conversation_history[-10:]
 
             self.root.after(0, self.replace_thinking_message, reply)
 
         except Exception as e:
-
             self.root.after(
                 0,
                 self.display_message,
@@ -1215,13 +1155,10 @@ Summarize the following conversation briefly:
             )
 
         finally:
-
             self.root.after(
                 0,
                 lambda: self.send_button.config(state=tk.NORMAL)
             )
-
-    
 
 
 # =============================
