@@ -1,6 +1,6 @@
 # Local AI Companion
 
-A privacy-first AI assistant that runs entirely on your machine and learns who you are over time.
+An AI assistant that runs entirely on your machine and learns who you are over time.
 
 All conversations, memories, and your personal profile stay local. Nothing leaves your device.
 
