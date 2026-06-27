@@ -1,4 +1,4 @@
-# Local AI Companion
+# P.E.R.I(Personal Embedded Reasoning Intelligence)
 
 An AI assistant that runs entirely on your machine and learns who you are over time.
 
